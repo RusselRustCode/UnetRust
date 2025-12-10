@@ -48,7 +48,7 @@ impl ConvolutionLayer{
             for kd in 0..input_size.2{
                 for kx in 0..kernel_size{
                     for ky in 0..kernel_size{
-                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng) * (2.0 / (input_size.0.pow(2)) as f32).sqrt()
+                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng) * (2.0 / (input_size.0.pow(2)) as f32).sqrt() // HE/Kaiming init
                     }
                 }
             }
@@ -87,22 +87,30 @@ impl ConvolutionLayer{
                 }
             }
         }
-        
+        //z[x, y, f] = ∑∑∑X[x + i, y + j, c] * Wf[i, j, c]
+        //output[x, y, f] = ReLu(z[x, y, f])
         self.output_array.clone()
     } 
 
 
     pub fn backward(&mut self, error: Array3<f32>) -> Array3<f32>{
+        //error[x, y, f] = dL/dout[x, y, f]
+        //dz/dWf[i, j, c] = X[x + i, y + j, c]
         let mut prev_error: Array3<f32> = Array3::<f32>::zeros(self.input_size);
         for f in 0..self.output_size.2{
             for y in 0..self.output_size.1{
                 for x in 0..self.output_size.0{
-                    if self.output_array[[x, y, f]] <= 0.0{
+                    if self.output_array[[x, y, f]] <= 0.0{ //Смортим чтобы значение было больше нуля, иначе пропускаем, т.к. в backprop производная Relu 0, нет смысла останавливаться
                         continue;
                     }
 
+                    //Вычисляем так же градиенты по входу, т.к.мы знаем, что градиент по входу n слоя равен градиенту выхода n-1 слоя и потом передадим prev_error в backward в качетсве error для n-1 слоя
+                    //dL/dX = сумма по каналам(dL/dout * dout/dz * dz/dX), dout/dz = 1(производная relu), dL/dout = error, dz/dX = Wf по формуле в forward 
                     prev_error.slice_mut(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]).add_assign(&(error[[x, y, f]] * &self.kernels.slice(s![f, .., .., ..])));
                     let input_slice = self.input_array.slice(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]);
+                    //Градиент по весам: dL/dWf[i, j, c] = сумма(dL/dout[x, y, f] * dout[x, y, f]/dz * dz/dW) => сумма(error[x, y, f] * X[x + i, y + j, c])
+                    //мы знаем, что dout[x, y, f]/dz это производная ReLu, что в свою очерель равна 1 при x > 0 и 0 при x <= 0, поэтому убираем, т.к. эквивалентна 1, 0 мы пропускаем
+                    //dL/dout[x, y, f] это error, который мы передаем, причем error для n слоя и prev_error для n+1 слоя, а dz/dW это входы X из формулы в forward
                     self.kernel_changes.slice_mut(s![f, .., .., ..]).sub_assign(&(error[[x, y, f]] * &input_slice));
                 }
             }
@@ -111,7 +119,7 @@ impl ConvolutionLayer{
     }
 
     pub fn update(&mut self, minibatch: usize){
-        self.kernel_changes /= minibatch as f32;
+        self.kernel_changes /= minibatch as f32; // Сумма градиентов в batch, поэтому делим на размер batch
         self.kernels += &self.optimizer.weights_changes(&self.kernel_changes);
         self.kernel_changes = Array4::<f32>::zeros((self.num_filters, self.kernel_size, self.kernel_size, self.input_size.2));
     }
