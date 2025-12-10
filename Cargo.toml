@@ -1,0 +1,24 @@
+[package]
+name = "CNNFromScratch"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "CNNFromScratch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "CNNFromScratch"
+path = "src/main.rs"
+
+[dependencies]
+rand_distr = "0.4.3"
+rand = "0.8.5"
+ndarray = {version = "0.15.0", features = ["serde"]}
+serde = {version = "1.0.163", features = ["derive"]}
+serde_json = "1.0"
+rust-mnist = "0.2"
+indicatif = "0.17.7"
+image = "0.23"
+walkdir = "2.3"
+cudarc = {version = "0.17.0", features = ["cuda-12080"]}
