@@ -23,7 +23,14 @@ pub struct TrainingData{
     pub test_size: usize,
 }
 
-
+#[derive(Serialize, Deserialize)]
+pub enum SavingStrategy {
+    EveryEpoch(bool),
+    EveryNthEpoch(bool, f32),
+    BestTrainingAccuracy(bool),
+    BestTestingAccuracy(bool),
+    Never,
+}
 
 pub fn outer(x: Array1<f32>, y: Array1<f32>) -> Array2<f32>{
     let mut result: Array2<f32> = Array2::<f32>::zeros((x.len(), y.len()));
