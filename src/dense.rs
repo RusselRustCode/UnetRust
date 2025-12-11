@@ -77,15 +77,16 @@ impl DenseLayer{
         if self.dropout.is_some(){
             let dropout = self.dropout.unwrap();
             let mut rng = thread_rng();
-            self.dropout_mask = Array1::<f32>::from_shape_fn((self.output_size), |_| rng.r#gen::<f32>());
-            self.dropout_mask = self.dropout_mask.mapv(|x| if x < dropout {0.0} else {1.0});
-            let logits = self.weights.dot(&input) + &self.biases;
-            self.output = forward(logits, self.activation);
-            self.output = &self.output * &self.dropout_mask;
+            self.dropout_mask = Array1::<f32>::from_shape_fn((self.output_size), |_| rng.r#gen::<f32>()); //Стандартное нормальное распределение с mean = 0, std=1
+            self.dropout_mask = self.dropout_mask.mapv(|x| if x < dropout {0.0} else {1.0}); //dropoutmask
+            let logits = self.weights.dot(&input) + &self.biases; //Wx + b
+            self.output = forward(logits, self.activation); //применяем нелинейную функцию активации 
+            self.output = &self.output * &self.dropout_mask; // отключаем некоторые нейроны в соответствии с dropoutmask
             self.input = input;
             return self.output.clone();
         }
         else {
+            //тоже самое только без dropout
             let logits = self.weights.dot(&input) + &self.biases;
             self.output = forward(logits, self.activation);
             self.input = input;
@@ -94,14 +95,14 @@ impl DenseLayer{
     }
 
     pub fn backpropagate(&mut self, error: Array1<f32>, training: bool, true_label: Option<Array1<f32>>) -> Array1<f32>{
-        let mut error = error;
-        if self.dropout.is_some() && training{
+        let mut error = error; //dL/dout
+        if self.dropout.is_some() && training{ //Проверяем на dropout и training, т.к. dropout используется в тренирвоке, но не в тесте
             error *= &self.dropout_mask;
         }
-        error *= &backward(self.output.clone(), self.activation, None);
-        let prev_error = self.weights.t().dot(&error);
-        self.weights_changes -= &(outer(error.clone(), self.input.clone()));
-        self.bias_changes -= &error;
+        error *= &backward(self.output.clone(), self.activation, None); //dout/dz - производная функции активации
+        let prev_error = self.weights.t().dot(&error); //dz/dx - умножаем на вес наш накопившийся градиент error
+        self.weights_changes -= &(outer(error.clone(), self.input.clone())); // ???Вопрос
+        self.bias_changes -= &error; //dL/dout * dout/dz * dz/db, dz/db = 1 => значит отнимаем просто error(dL/dout * dout/dz)
 
         return prev_error;
 
