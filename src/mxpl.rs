@@ -9,7 +9,7 @@ pub struct MaxPooling{
     #[serde(skip)]
     pub highest_indx: Array4<usize>,
     stride: usize, 
-    output_size: (usize, usize, usize)
+    pub output_size: (usize, usize, usize)
 }
 
 

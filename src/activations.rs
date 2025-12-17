@@ -33,7 +33,8 @@ pub fn softmax(x: Array1<f32>) -> Array1<f32>{
 
 pub fn softmax_deriv(softmax_output: Array1<f32>, true_label: Array1<f32>) -> Array1<f32>{
     // return Array1::ones(x.len()); //Почему производная от softmax такая, пока что вопрос 
-    return softmax_output - true_label; //Производная при кросс-энтропии
+    // return softmax_output - true_label; //Производная при кросс-энтропии
+    Array1::ones(softmax_output.len())
 }
 
 
@@ -50,7 +51,7 @@ pub fn backward(x: Array1<f32>, activation: Activations, true_label: Option<Arra
     match activation{
         Activations::ReLU => relu_deriv(x),
         Activations::Sigmoid => sigmoid_deriv(x),
-        Activations::Softmax => softmax_deriv(softmax(x), true_label.unwrap()),
+        Activations::Softmax => softmax_deriv(x, true_label.unwrap_or(Array1::<f32>::zeros(0))),
         _ => panic!("Нет такой функции активации и ее производной"),
     }
 }

@@ -75,16 +75,18 @@ pub struct Optim4D{
 
 
 impl Optim2D{
-    pub fn new(alg: Optimizer, input_size: usize, output_size: usize) -> Self{
+    pub fn new(alg: Optimizer, input_size: usize, output_size: usize, weights: &Array2<f32>) -> Self{
+        let shape = weights.raw_dim();
         return Self{
             alg: alg,
-            history_grad1: Array2::zeros((input_size, output_size)),
-            history_grad2: Array2::zeros((input_size, output_size)),
+            history_grad1: Array2::zeros(shape),
+            history_grad2: Array2::zeros(shape),
             t: 0,
             beta1: false,
             beta2: false,
         };
     }
+
 
     pub fn weights_changes(&mut self, gradients: &Array2<f32>) -> Array2<f32>{
         match self.alg{
@@ -102,6 +104,11 @@ impl Optim2D{
                 // ut = -lr * grad / sqrt(Gt-1 + eps), Gt = rho * Gt-1 + (1- rho) * grad^2
             },
             Optimizer::Adam(lr, beta1, beta2, eps) =>{
+                assert_eq!(
+                    self.history_grad1.shape(),
+                    gradients.shape(),
+                    "history_grad1 and gradients have incompatible shapes, ОШИБКА"
+                );
                 self.t += 1;
                 self.history_grad1 = beta1 * &self.history_grad1 + &(gradients.mapv(|xi| xi * (1.0 - beta1)));
                 self.history_grad2 = beta2 * &self.history_grad2 + &(gradients.mapv(|xi| xi.powf(2.0) * (1.0 - beta2)));

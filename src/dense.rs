@@ -54,7 +54,7 @@ impl DenseLayer{
         let biases = Array1::<f32>::from_elem(output_size, 0.01);
 
 
-        let optimizer = Optim2D::new(optim_alg, input_size, output_size);
+        let optimizer = Optim2D::new(optim_alg, output_size, input_size, &weights);
 
         return Self{
             input_size: input_size,
@@ -101,6 +101,9 @@ impl DenseLayer{
         }
         error *= &backward(self.output.clone(), self.activation, None); //dout/dz - производная функции активации
         let prev_error = self.weights.t().dot(&error); //dz/dx - умножаем на вес наш накопившийся градиент error
+        // eprintln!("input shape: {:?}", self.input.shape());
+        // eprintln!("error shape: {:?}", error.shape());
+        // eprintln!("Input_size: {}", self.input_size);
         self.weights_changes -= &(outer(error.clone(), self.input.clone())); // ???Вопрос
         self.bias_changes -= &error; //dL/dout * dout/dz * dz/db, dz/db = 1 => значит отнимаем просто error(dL/dout * dout/dz)
 
@@ -115,10 +118,10 @@ impl DenseLayer{
     }
 
     pub fn update(&mut self, minibatchsize: usize, lr: f32){
-        self.weights_changes /= minibatchsize as f32;
-        self.bias_changes /= minibatchsize as f32;
-        self.weights_changes += &self.optimizer.weights_changes(&self.weights_changes);
-        self.bias_changes += &self.optimizer.bias_changes(lr, &self.bias_changes);
+        // self.weights_changes /= minibatchsize as f32;
+        // self.bias_changes /= minibatchsize as f32;
+        self.weights += &self.optimizer.weights_changes(&self.weights_changes);
+        self.biases += &self.optimizer.bias_changes(lr, &self.bias_changes);
         self.weights_changes = Array2::<f32>::zeros((self.output_size, self.input_size));
         self.bias_changes = Array1::<f32>::zeros(self.output_size);
     }

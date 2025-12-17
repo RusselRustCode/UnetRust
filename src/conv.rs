@@ -1,5 +1,5 @@
 use std::ops::{AddAssign, SubAssign};
-use ndarray::{Array3, Array4, s};
+use ndarray::{Array3, Array4, s, Array2};
 use serde::{Serialize, Deserialize};
 use std::fmt::{Debug, Formatter};
 use rand_distr::{Normal, Distribution};
@@ -21,6 +21,7 @@ pub struct ConvolutionLayer{
     #[serde(skip)]
     kernel_changes: Array4<f32>,
     optimizer: Optim4D,
+    flat_kernel_size: usize,
 }
 
 impl Debug for ConvolutionLayer{
@@ -44,21 +45,25 @@ impl ConvolutionLayer{
         let mut kernels = Array4::zeros((num_filters, kernel_size, kernel_size, input_size.2));
         let normal = Normal::new(0.0, 1.0).unwrap();
         let mut rng = rand::thread_rng();
+        
+        let fan_in = kernel_size * kernel_size * input_size.2; // Количество входных связей на один нейрон
+        let std = (2.0 / fan_in as f32).sqrt();
         for f in 0..num_filters{
             for kd in 0..input_size.2{
                 for kx in 0..kernel_size{
                     for ky in 0..kernel_size{
-                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng) * (2.0 / (input_size.0.pow(2)) as f32).sqrt() // HE/Kaiming init
+                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng) * std;
                     }
                 }
             }
         }
 
-        let optim4d = Optim4D::new(optimizer, (num_filters, kernel_size, kernel_size, input_size.0));
+        let optim4d = Optim4D::new(optimizer, (num_filters, kernel_size, kernel_size, input_size.2));
         let padding = match padding {
             Some(padding) => padding,
             None => 0,
         };
+        
 
         return Self{
             input_size: input_size,
@@ -71,55 +76,166 @@ impl ConvolutionLayer{
             num_filters: num_filters,
             kernels: kernels,
             kernel_changes: Array4::zeros((num_filters, kernel_size, kernel_size, input_size.2)),
-            optimizer: optim4d
+            optimizer: optim4d,
+            flat_kernel_size: kernel_size * kernel_size * input_size.2,
         };
     }
 
-
-    pub fn forward(&mut self, input: Array3<f32>) -> Array3<f32>{
-        self.input_array = input;
-        for f in 0..self.output_size.2{
-            let kernel_slice = self.kernels.slice(s![f, .., .., ..]);
-            for y in 0..self.output_size.1{
-                for x in 0..self.output_size.0{
-                    let input_slice = self.input_array.slice(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]);
-                    self.output_array[[x, y, f]] = (&input_slice * &kernel_slice).sum().max(0.0);
-                }
-            }
-        }
-        //z[x, y, f] = ∑∑∑X[x + i, y + j, c] * Wf[i, j, c]
-        //output[x, y, f] = ReLu(z[x, y, f])
-        self.output_array.clone()
-    } 
+    pub fn to_im2col(&self, input: &Array3<f32>) -> Array2<f32>{
+        let (in_h, in_w, in_c) = self.input_size;
+        let kernel = self.kernel_size;
+        let out_h = self.output_size.0;
+        let out_w = self.output_size.1;
 
 
-    pub fn backward(&mut self, error: Array3<f32>) -> Array3<f32>{
-        //error[x, y, f] = dL/dout[x, y, f]
-        //dz/dWf[i, j, c] = X[x + i, y + j, c]
-        let mut prev_error: Array3<f32> = Array3::<f32>::zeros(self.input_size);
-        for f in 0..self.output_size.2{
-            for y in 0..self.output_size.1{
-                for x in 0..self.output_size.0{
-                    if self.output_array[[x, y, f]] <= 0.0{ //Смортим чтобы значение было больше нуля, иначе пропускаем, т.к. в backprop производная Relu 0, нет смысла останавливаться
-                        continue;
+        let mut im2col_matrix = Array2::<f32>::zeros((kernel * kernel * in_c, out_h * out_w));
+
+
+        let mut col_idx = 0;
+        for y in 0..out_h{
+            for x in 0..out_w{
+                for c in 0..in_c{
+                    for ky in 0..kernel{
+                        for kx in 0..kernel{
+                            let val = input[[x + kx, y + ky, c]];
+                            let row_idx = ky * kernel * in_c + kx * in_c + c;
+                            im2col_matrix[[row_idx, col_idx]] = val;
+                        }
                     }
-
-                    //Вычисляем так же градиенты по входу, т.к.мы знаем, что градиент по входу n слоя равен градиенту выхода n-1 слоя и потом передадим prev_error в backward в качетсве error для n-1 слоя
-                    //dL/dX = сумма по каналам(dL/dout * dout/dz * dz/dX), dout/dz = 1(производная relu), dL/dout = error, dz/dX = Wf по формуле в forward 
-                    prev_error.slice_mut(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]).add_assign(&(error[[x, y, f]] * &self.kernels.slice(s![f, .., .., ..])));
-                    let input_slice = self.input_array.slice(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]);
-                    //Градиент по весам: dL/dWf[i, j, c] = сумма(dL/dout[x, y, f] * dout[x, y, f]/dz * dz/dW) => сумма(error[x, y, f] * X[x + i, y + j, c])
-                    //мы знаем, что dout[x, y, f]/dz это производная ReLu, что в свою очерель равна 1 при x > 0 и 0 при x <= 0, поэтому убираем, т.к. эквивалентна 1, 0 мы пропускаем
-                    //dL/dout[x, y, f] это error, который мы передаем, причем error для n слоя и prev_error для n+1 слоя, а dz/dW это входы X из формулы в forward
-                    self.kernel_changes.slice_mut(s![f, .., .., ..]).sub_assign(&(error[[x, y, f]] * &input_slice));
                 }
+                col_idx += 1;
             }
         }
-        return prev_error;
+        return im2col_matrix;
     }
 
+
+
+    pub fn forward(&mut self, input: Array3<f32>) -> Array3<f32> {
+        self.input_array = input.clone(); // Сохраняем для backward
+
+        let im2col_matrix = self.to_im2col(&input);
+
+        // Размер: num_filters x (kernel_size * kernel_size * channels)
+        let kernels_flat = self.kernels.view().into_shape((self.num_filters, self.flat_kernel_size)).unwrap();
+
+
+        // Результат: num_filters x (out_h * out_w)
+        let output_flat = kernels_flat.dot(&im2col_matrix);
+
+        let output_flat_relu = output_flat.mapv(|x| x.max(0.0));
+
+        //(out_h, out_w, num_filters)
+        let output_3d = output_flat_relu.into_shape((self.output_size.0, self.output_size.1, self.num_filters)).unwrap();
+
+        self.output_array = output_3d.clone();
+
+        output_3d
+    }
+
+
+
+    fn col2im(&self, grad_matrix: &Array2<f32>) -> Array3<f32> {
+        let (in_h, in_w, in_c) = self.input_size;
+        let k = self.kernel_size;
+        let out_h = self.output_size.0;
+        let out_w = self.output_size.1;
+
+        // Создаем массив для градиентов по входу
+        let mut grad_input = Array3::<f32>::zeros((in_h, in_w, in_c));
+
+        // Заполняем градиенты
+        let mut col_idx = 0; // Индекс столбца в grad_matrix
+        for y in 0..out_h {
+            for x in 0..out_w {
+                for c in 0..in_c {
+                    for ky in 0..k {
+                        for kx in 0..k {
+                            // Получаем градиент для текущего патча
+                            let grad_val = grad_matrix[[ky * k * in_c + kx * in_c + c, col_idx]];
+                            // Добавляем его в соответствующий пиксель входа
+                            grad_input[[x + kx, y + ky, c]] += grad_val;
+                        }
+                    }
+                }
+                col_idx += 1;
+            }
+        }
+
+        grad_input
+    }
+
+    // pub fn backward(&mut self, error: Array3<f32>) -> Array3<f32>{
+    //     //error[x, y, f] = dL/dout[x, y, f]
+    //     //dz/dWf[i, j, c] = X[x + i, y + j, c]
+    //     let mut prev_error: Array3<f32> = Array3::<f32>::zeros(self.input_size);
+    //     for f in 0..self.output_size.2{
+    //         for y in 0..self.output_size.1{
+    //             for x in 0..self.output_size.0{
+    //                 if self.output_array[[x, y, f]] <= 0.0{ //Смортим чтобы значение было больше нуля, иначе пропускаем, т.к. в backprop производная Relu 0, нет смысла останавливаться
+    //                     continue;
+    //                 }
+
+    //                 //Вычисляем так же градиенты по входу, т.к.мы знаем, что градиент по входу n слоя равен градиенту выхода n-1 слоя и потом передадим prev_error в backward в качетсве error для n-1 слоя
+    //                 //dL/dX = сумма по каналам(dL/dout * dout/dz * dz/dX), dout/dz = 1(производная relu), dL/dout = error, dz/dX = Wf по формуле в forward 
+    //                 prev_error.slice_mut(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]).add_assign(&(error[[x, y, f]] * &self.kernels.slice(s![f, .., .., ..])));
+    //                 let input_slice = self.input_array.slice(s![x..x+self.kernel_size, y..y+self.kernel_size, ..]);
+    //                 //Градиент по весам: dL/dWf[i, j, c] = сумма(dL/dout[x, y, f] * dout[x, y, f]/dz * dz/dW) => сумма(error[x, y, f] * X[x + i, y + j, c])
+    //                 //мы знаем, что dout[x, y, f]/dz это производная ReLu, что в свою очерель равна 1 при x > 0 и 0 при x <= 0, поэтому убираем, т.к. эквивалентна 1, 0 мы пропускаем
+    //                 //dL/dout[x, y, f] это error, который мы передаем, причем error для n слоя и prev_error для n+1 слоя, а dz/dW это входы X из формулы в forward
+    //                 self.kernel_changes.slice_mut(s![f, .., .., ..]).sub_assign(&(error[[x, y, f]] * &input_slice));
+    //             }
+    //         }
+    //     }
+    //     return prev_error;
+    // }
+
+
+    pub fn backward(&mut self, error: Array3<f32>) -> Array3<f32> {
+        let (out_h, out_w, num_filters) = self.output_size;
+        let k = self.kernel_size;
+        let in_c = self.input_size.2;
+        let flat_size = k * k * in_c;
+
+        let mut error_relu = error.clone();
+        if self.output_array.len() > 0 { // Проверка, что output_array был заполнен
+            for f in 0..num_filters {
+                for y in 0..out_h {
+                    for x in 0..out_w {
+                        if self.output_array[[x, y, f]] <= 0.0 {
+                            error_relu[[x, y, f]] = 0.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Вычисляем градиенты по весам
+        // Для этого нам нужно "развернуть" входные данные и ошибку
+        let im2col_matrix = self.to_im2col(&self.input_array); // Размер: (flat_size, out_h * out_w)
+
+        // "Разворачиваем" ошибку в матрицу размером (num_filters, out_h * out_w)
+        let error_flat = error_relu.into_shape((num_filters, out_h * out_w)).unwrap();
+
+        // dL/dW = error_flat * im2col_matrix^T
+        let grad_weights = error_flat.dot(&im2col_matrix.t()); // Размер: (num_filters, flat_size)
+
+        let grad_weights_reshaped = grad_weights.into_shape((num_filters, k, k, in_c)).unwrap();
+        self.kernel_changes -= &grad_weights_reshaped;
+
+        // dL/dX = kernels^T * error_flat (в формате im2col)
+        let kernels_flat = self.kernels.view().into_shape((num_filters, flat_size)).unwrap();
+        let grad_input_flat = kernels_flat.t().dot(&error_flat); // Размер: (flat_size, out_h * out_w)
+
+        let grad_input = self.col2im(&grad_input_flat);
+
+        grad_input
+    }
+
+
     pub fn update(&mut self, minibatch: usize){
-        self.kernel_changes /= minibatch as f32; // Сумма градиентов в batch, поэтому делим на размер batch
+     // Сумма градиентов в batch, поэтому делим на размер batch
+        // self.kernel_changes /= minibatch as f32;
         self.kernels += &self.optimizer.weights_changes(&self.kernel_changes);
         self.kernel_changes = Array4::<f32>::zeros((self.num_filters, self.kernel_size, self.kernel_size, self.input_size.2));
     }

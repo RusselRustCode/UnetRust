@@ -21,12 +21,13 @@ where T: AsRef<Path>{
     if !mnist_path.exists(){
         create_dir(mnist_path.as_path()).expect("Failed");
     }
-
+    let mean = 0.1307; // Среднее значение для MNIST
+    let std = 0.3081; 
 
     for i in 0..60000{
         let flat_data: Vec<f32> = mnist.train_data[i]
         .iter()
-        .map(|x| *x as f32 / 255.0)
+        .map(|x| (*x as f32 - mean) / std)
         .collect();
 
         let img = Array3::from_shape_vec((rows, cols, 1), flat_data).unwrap();
@@ -38,7 +39,7 @@ where T: AsRef<Path>{
     for i in 0..10000{
         let flat_data: Vec<f32> = mnist.test_data[i]
         .iter()
-        .map(|x| *x as f32 / 255.0)
+        .map(|x| (*x as f32 - mean) / std)
         .collect();
 
         let img = Array3::from_shape_vec((rows, cols, 1), flat_data).unwrap();
