@@ -99,7 +99,14 @@ impl DenseLayer{
         if self.dropout.is_some() && training{ //Проверяем на dropout и training, т.к. dropout используется в тренирвоке, но не в тесте
             error *= &self.dropout_mask;
         }
-        error *= &backward(self.output.clone(), self.activation, None); //dout/dz - производная функции активации
+        if self.activation == Activations::Softmax {
+            // Для Softmax производная = output - true_label
+            if let Some(label) = true_label {
+                error = &self.output - &label;
+            }
+        } else {
+            error *= &backward(self.output.clone(), self.activation, None); //dout/dz - производная функции активации
+        }
         let prev_error = self.weights.t().dot(&error); //dz/dx - умножаем на вес наш накопившийся градиент error
         // eprintln!("input shape: {:?}", self.input.shape());
         // eprintln!("error shape: {:?}", error.shape());

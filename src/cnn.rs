@@ -214,6 +214,11 @@ impl CNN{
     pub fn backward_prop(&mut self, label:usize, training: bool){
         let mut flat_error = self.last_layer_error(label);
         let mut error = flat_error.clone().into_shape((1, 1, flat_error.len())).unwrap();
+        let size = match self.layers.last().unwrap() {
+            Layers::Dense(dl) => dl.output_size,
+            _ => panic!(),
+        };
+        let true_label = Array1::from_shape_fn(size, |i| if i == label {1.0} else {0.0});
         for layer in self.layers.iter_mut().rev(){
             match layer {
                 Layers::Conv(conv_layer) => {
@@ -223,7 +228,7 @@ impl CNN{
                     error = maxpooling_layer.backward(error);
                 },
                 Layers::Dense(dense_layer) => {
-                    flat_error = dense_layer.backpropagate(flat_error, training, None);
+                    flat_error = dense_layer.backpropagate(flat_error, training, Some(true_label.clone()));
                     error = flat_error.clone().into_shape(dense_layer.trans_shape).unwrap();
                 },
                 Layers::TransposeConv(trans_layer) => unimplemented!(),
