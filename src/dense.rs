@@ -73,25 +73,51 @@ impl DenseLayer{
         };
     }
 
-    pub fn forward(&mut self, input: Array1<f32>) -> Array1<f32>{
-        if self.dropout.is_some(){
-            let dropout = self.dropout.unwrap();
-            let mut rng = thread_rng();
-            self.dropout_mask = Array1::<f32>::from_shape_fn((self.output_size), |_| rng.r#gen::<f32>()); //Стандартное нормальное распределение с mean = 0, std=1
-            self.dropout_mask = self.dropout_mask.mapv(|x| if x < dropout {0.0} else {1.0}); //dropoutmask
-            let logits = self.weights.dot(&input) + &self.biases; //Wx + b
-            self.output = forward(logits, self.activation); //применяем нелинейную функцию активации 
-            self.output = &self.output * &self.dropout_mask; // отключаем некоторые нейроны в соответствии с dropoutmask
-            self.input = input;
-            return self.output.clone();
+    pub fn forward(&mut self, input: Array1<f32>, training: bool) -> Array1<f32>{
+        // if self.dropout.is_some(){
+        //     let dropout = self.dropout.unwrap();
+        //     let mut rng = thread_rng();
+        //     self.dropout_mask = Array1::<f32>::from_shape_fn((self.output_size), |_| rng.r#gen::<f32>()); //Стандартное нормальное распределение с mean = 0, std=1
+        //     self.dropout_mask = self.dropout_mask.mapv(|x| if x < dropout {0.0} else {1.0}); //dropoutmask
+        //     let logits = self.weights.dot(&input) + &self.biases; //Wx + b
+        //     self.output = forward(logits, self.activation); //применяем нелинейную функцию активации 
+        //     self.output = &self.output * &self.dropout_mask; // отключаем некоторые нейроны в соответствии с dropoutmask
+        //     self.input = input;
+        //     return self.output.clone();
+        // }
+        // else {
+        //     //тоже самое только без dropout
+        //     let logits = self.weights.dot(&input) + &self.biases;
+        //     self.output = forward(logits, self.activation);
+        //     self.input = input;
+        //     return self.output.clone();
+        // }
+
+        let logits = self.weights.dot(&input) + &self.biases;
+        self.output = forward(logits, self.activation);
+        self.input = input;
+
+        if let Some(dropout_prob) = self.dropout {
+            if training {
+                // Генерируем маску только при тренировке
+                let mut rng = thread_rng();
+                // 1.0 - keep, 0.0 - drop
+                self.dropout_mask = Array1::<f32>::from_shape_fn((self.output_size), |_| {
+                    if rng.r#gen::<f32>() < dropout_prob { 0.0 } else { 1.0 }
+                });
+                
+                // Применяем маску
+                self.output = &self.output * &self.dropout_mask;
+                
+                // INVERTED DROPOUT: Масштабируем выход, чтобы сохранить мат. ожидание
+                // Если мы выкинули 25% нейронов, оставшиеся должны "светить" ярче.
+                let keep_prob = 1.0 - dropout_prob;
+                self.output /= keep_prob; 
+            }
+            // Если training == false, мы просто не трогаем output (и не применяем dropout)
         }
-        else {
-            //тоже самое только без dropout
-            let logits = self.weights.dot(&input) + &self.biases;
-            self.output = forward(logits, self.activation);
-            self.input = input;
-            return self.output.clone();
-        }
+
+        return self.output.clone();
     }
 
     pub fn backpropagate(&mut self, error: Array1<f32>, training: bool, true_label: Option<Array1<f32>>) -> Array1<f32>{
@@ -125,8 +151,8 @@ impl DenseLayer{
     }
 
     pub fn update(&mut self, minibatchsize: usize, lr: f32){
-        // self.weights_changes /= minibatchsize as f32;
-        // self.bias_changes /= minibatchsize as f32;
+        self.weights_changes /= minibatchsize as f32;
+        self.bias_changes /= minibatchsize as f32;
         self.weights += &self.optimizer.weights_changes(&self.weights_changes);
         self.biases += &self.optimizer.bias_changes(lr, &self.bias_changes);
         self.weights_changes = Array2::<f32>::zeros((self.output_size, self.input_size));
