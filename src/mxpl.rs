@@ -79,7 +79,8 @@ impl MaxPooling{
                 for x in 0..self.output_size.0{
                     let hx = self.highest_indx[[x, y, f, 0]];
                     let hy = self.highest_indx[[x, y, f, 1]];
-                    prev_error[[hx, hy, f]] = error[[x, y, f]]; 
+                    prev_error[[hx, hy, f]] += error[[x, y, f]]; //исправлено с = на +=, т.к. 
+                    //Если пиксель (hx, hy) выиграл в двух соседних окнах, градиент от второго окна перезапишет градиент от первого. Градиенты должны суммироваться.
                 }
             }
         }
