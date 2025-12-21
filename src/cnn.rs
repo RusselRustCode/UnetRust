@@ -194,7 +194,7 @@ impl CNN{
                     output = maxpooling_layer.forward(output);
                     flat_data = output.clone().into_shape(output.len()).unwrap();
                 },
-                Layers::Dense(dense_layer) => flat_data = dense_layer.forward(flat_data),
+                Layers::Dense(dense_layer) => flat_data = dense_layer.forward(flat_data, training),
                 Layers::TransposeConv(trans_conv_layer) => unimplemented!(),
             }
         }

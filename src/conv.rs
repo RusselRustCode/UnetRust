@@ -43,16 +43,18 @@ impl ConvolutionLayer{
         let output = ((input_size.0 - kernel_size) / stride) + 1;
         let oputut_size = (output, output, num_filters);
         let mut kernels = Array4::zeros((num_filters, kernel_size, kernel_size, input_size.2));
-        let normal = Normal::new(0.0, 1.0).unwrap();
-        let mut rng = rand::thread_rng();
-        
         let fan_in = kernel_size * kernel_size * input_size.2; // Количество входных связей на один нейрон
         let std = (2.0 / fan_in as f32).sqrt();
+        let normal = Normal::new(0.0, std).unwrap();
+        let mut rng = rand::thread_rng();
+        
+
+        
         for f in 0..num_filters{
             for kd in 0..input_size.2{
                 for kx in 0..kernel_size{
                     for ky in 0..kernel_size{
-                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng) * std;
+                        kernels[[f, kx, ky, kd]] = normal.sample(&mut rng);
                     }
                 }
             }
@@ -123,7 +125,9 @@ impl ConvolutionLayer{
         // Результат: num_filters x (out_h * out_w)
         let output_flat = kernels_flat.dot(&im2col_matrix);
 
-        let output_flat_relu = output_flat.mapv(|x| x.max(0.0));
+        let output_flat_relu = output_flat.mapv(|x| if x >= 0.0 {x} else {0.01 * x});
+        // let active_ratio = output_flat_relu.iter().filter(|&&x| x > 0.0).count() as f32 / output_flat.len() as f32;
+        // eprintln!("[CONV FORWARD] Active neurons ratio: {:.1}%", active_ratio * 100.0);
 
         //(out_h, out_w, num_filters)
         let output_3d = output_flat_relu.into_shape((self.output_size.0, self.output_size.1, self.num_filters)).unwrap();
@@ -203,7 +207,7 @@ impl ConvolutionLayer{
                 for y in 0..out_h {
                     for x in 0..out_w {
                         if self.output_array[[x, y, f]] <= 0.0 {
-                            error_relu[[x, y, f]] = 0.0;
+                            error_relu[[x, y, f]] *= 0.01;
                         }
                     }
                 }
@@ -219,8 +223,21 @@ impl ConvolutionLayer{
 
         // dL/dW = error_flat * im2col_matrix^T
         let grad_weights = error_flat.dot(&im2col_matrix.t()); // Размер: (num_filters, flat_size)
+        
 
         let grad_weights_reshaped = grad_weights.into_shape((num_filters, k, k, in_c)).unwrap();
+
+        // ЛОГИРОВАНИЕ: после вычисления grad_weights
+        // let grad_mean = grad_weights_reshaped.mean().unwrap_or(0.0);
+        // let grad_std = grad_weights_reshaped.std(0.0);
+        // let grad_abs_max = grad_weights_reshaped.fold(0.0, |acc: f32, &x| acc.max(x.abs()));
+        // eprintln!("[CONV] Grad stats: mean={:.6e}, std={:.6e}, max={:.6e}", 
+        //         grad_mean, grad_std, grad_abs_max);
+        
+        // let error_mean = error.mean().unwrap_or(0.0);
+        // eprintln!("[CONV] Input error: mean={:.6e}", error_mean);
+
+
         self.kernel_changes -= &grad_weights_reshaped;
 
         // dL/dX = kernels^T * error_flat (в формате im2col)
@@ -235,7 +252,7 @@ impl ConvolutionLayer{
 
     pub fn update(&mut self, minibatch: usize){
      // Сумма градиентов в batch, поэтому делим на размер batch
-        // self.kernel_changes /= minibatch as f32;
+        self.kernel_changes /= minibatch as f32;
         self.kernels += &self.optimizer.weights_changes(&self.kernel_changes);
         self.kernel_changes = Array4::<f32>::zeros((self.num_filters, self.kernel_size, self.kernel_size, self.input_size.2));
     }

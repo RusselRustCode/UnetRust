@@ -9,8 +9,8 @@ fn main() -> Result<(), String> {
 
     let hyperparameters = HyperParams {
         batch_size:32,
-        epochs: 10,
-        optimizer: Optimizer::Adam(5e-4, 0.9, 0.999, Some(1e-8)),
+        epochs: 4,
+        optimizer: Optimizer::Adam(0.0001, 0.9, 0.999, Some(1e-8)),
         ..HyperParams::default()
     };
 
@@ -19,13 +19,15 @@ fn main() -> Result<(), String> {
     cnn.set_input_shape(vec![28, 28, 1]);
     cnn.add_conv(32, 3);
     cnn.add_mxpl(2);
-    cnn.add_dense(128, Activations::ReLU, Some(0.25));
-    cnn.add_dense(64, Activations::ReLU, Some(0.25));
+    cnn.add_dense(128, Activations::LeakyReLU, None);
+    cnn.add_dense(64, Activations::LeakyReLU, None);
     cnn.add_dense(10, Activations::Softmax, None);
 
     cnn.train_mnist();
 
     Ok(())
+
+    //добавить LeakyReLU, поиграться с Dropout, поработать с cudarc
 
 }
 
