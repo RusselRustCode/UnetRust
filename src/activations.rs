@@ -4,6 +4,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Activations {
     ReLU,
+    LeakyReLU,
     Sigmoid,
     Softmax,
 }
@@ -14,6 +15,14 @@ pub fn relu(x: Array1<f32>) -> Array1<f32>{
 
 pub fn relu_deriv(x: Array1<f32>) -> Array1<f32>{
     return x.mapv(|xi| if xi >= 0.0 {1.0} else {0.0});
+}
+
+pub fn leaky_relu(x: Array1<f32>) -> Array1<f32>{
+    return x.mapv(|xi| if xi >= 0.0 {xi} else {0.01 * xi});
+}
+
+pub fn leaky_relu_deriv(x: Array1<f32>) -> Array1<f32>{
+    return x.mapv(|xi| if xi >= 0.0 {1.0} else {0.01});
 }
 
 pub fn sigmoid(x: Array1<f32>) -> Array1<f32>{
@@ -43,6 +52,7 @@ pub fn forward(x: Array1<f32>, activation: Activations) -> Array1<f32>{
         Activations::ReLU => relu(x),
         Activations::Sigmoid => sigmoid(x),
         Activations::Softmax => softmax(x),
+        Activations::LeakyReLU => leaky_relu(x),
         _=> panic!("Нет такой функции активации"),
     }
 }
@@ -52,6 +62,7 @@ pub fn backward(x: Array1<f32>, activation: Activations, true_label: Option<Arra
         Activations::ReLU => relu_deriv(x),
         Activations::Sigmoid => sigmoid_deriv(x),
         Activations::Softmax => softmax_deriv(softmax(x), true_label.unwrap_or(Array1::<f32>::zeros(0))),
+        Activations::LeakyReLU => leaky_relu_deriv(x),
         _ => panic!("Нет такой функции активации и ее производной"),
     }
 }
