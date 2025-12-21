@@ -27,7 +27,8 @@ where T: AsRef<Path>{
     for i in 0..60000{
         let flat_data: Vec<f32> = mnist.train_data[i]
         .iter()
-        .map(|x| (*x as f32 - mean) / std)
+        // .map(|x| (*x as f32 - mean) / std) ошибка
+        .map(|x| ((*x as f32 / 255.0) - mean) / std)
         .collect();
 
         let img = Array3::from_shape_vec((rows, cols, 1), flat_data).unwrap();
