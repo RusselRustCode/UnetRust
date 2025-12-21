@@ -110,8 +110,10 @@ impl Optim2D{
                     "history_grad1 and gradients have incompatible shapes, ОШИБКА"
                 );
                 self.t += 1;
-                self.history_grad1 = beta1 * &self.history_grad1 + &(gradients.mapv(|xi| xi * (1.0 - beta1)));
-                self.history_grad2 = beta2 * &self.history_grad2 + &(gradients.mapv(|xi| xi.powf(2.0) * (1.0 - beta2)));
+                // self.history_grad1 = beta1 * &self.history_grad1 + &(gradients.mapv(|xi| xi * (1.0 - beta1)));
+                self.history_grad1 = beta1 * &self.history_grad1 + (1.0 - beta1) * gradients;
+                // self.history_grad2 = beta2 * &self.history_grad2 + &(gradients.mapv(|xi| xi.powf(2.0) * (1.0 - beta2)));
+                self.history_grad2 = beta2 * &self.history_grad2 + (1.0 - beta2) * gradients.mapv(|xi| xi.powf(2.0));
 
                 //Скорректированные оценки смещения
                 //Проблема в том что на начальных этапах, особенно на t = 1, 2, .. m(history_grad1), v(history_grad2) инициализируются 0, поэтому оценки mt и vt
