@@ -9,3 +9,5 @@ pub mod layers;
 pub mod mnist;
 pub mod transposed_conv;
 pub mod unet;
+pub mod concat;
+pub mod kvasir;

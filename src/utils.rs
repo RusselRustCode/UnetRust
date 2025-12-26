@@ -85,3 +85,50 @@ pub fn load_img_to_grayscale(path: &Path) -> Result<Array3<f32>, String>{
 
     Ok(array)
 }
+
+
+const EPSILON: f32 = 1e-7;
+
+/// Вычисляет Dice Loss
+/// prediction: (H, W, Classes) - выход Softmax или Sigmoid (вероятности)
+/// target: (H, W, Classes) - One-Hot закодированная маска
+pub fn dice_loss(prediction: &Array3<f32>, target: &Array3<f32>) -> f32 {
+    let intersection = (prediction * target).sum();
+    let sum_pred = prediction.sum();
+    let sum_target = target.sum();
+
+    let dice = (2.0 * intersection + EPSILON) / (sum_pred + sum_target + EPSILON);
+    1.0 - dice
+}
+
+/// Производная Dice Loss по prediction (dL/dPred)
+/// target - реальная маска (One-Hot)
+pub fn dice_loss_deriv(prediction: &Array3<f32>, target: &Array3<f32>) -> Array3<f32> {
+    // dLoss/dPred = - dDice/dPred
+    // Dice = 2*A / (B), где A = intersection, B = sum_pred + sum_target
+    // dA/dPred = target
+    // dB/dPred = 1 (матрица единиц размером Pred)
+    // dDice/dPred = (2*B * dA - 2*A * dB) / B^2
+    // dDice/dPred = (2*B*target - 2*A*1) / B^2
+    // dLoss/dPred = - dDice/dPred
+
+    let intersection = (prediction * target).sum();
+    let sum_pred = prediction.sum();
+    let sum_target = target.sum();
+    
+    let denominator = sum_pred + sum_target + EPSILON;
+    let denominator_sq = denominator * denominator;
+
+    // 2 * (sum_pred + sum_target)
+    let term1_const = 2.0 * denominator;
+    
+    // 2 * intersection
+    let term2_const = 2.0 * intersection;
+
+    // Производная: -(term1 * target - term2) / denom^2
+    let mut grad = prediction.mapv(|_| 1.0) * (-term2_const);
+    grad += &(target.mapv(|x| x * term1_const));
+    grad /= denominator_sq;
+    
+    grad
+}

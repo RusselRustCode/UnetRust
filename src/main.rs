@@ -27,7 +27,7 @@ fn main() -> Result<(), String> {
 
     Ok(())
 
-    //добавить LeakyReLU, поиграться с Dropout, поработать с cudarc
+    //добавить LeakyReLU, поиграться с Dropout, поработать с cudarc, допилить padding для conv.rs
 
 }
 
